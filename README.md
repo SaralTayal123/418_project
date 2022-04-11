@@ -1,6 +1,17 @@
 # OMPRRT: Open-MP based rapidly exploring random trees 
 ### *(pronounced Ompert. Like Robert with Omp.)*
 
+## Milestone Report
+
+So far we have gotten our implementation of RRT an d RRT* working in serial execution. We have also developed a method for storing our graphs and the best path it takes in a standard data format. We have also started work on a web based visualizer for the graph to help us visually debug/demonstrate an optimal path and the statespace that the algorithm has found. 
+
+We are perfectly on track to hitting our 100% deliverable and are currently around the end of week 2 of our 4 week plan. It is still difficult to comment on the strech goal target since we haven't fully started exploring avenues of parallelizatin that we intend to explore and upon doing that later this week, we hope to have a better sense of understanding for how far we can expect to get with our stretch goals
+
+As for what we intend to demo, we intend to demo various visualizations of the output of the algorithm (state space & optimal path) and also display graphs for speedup vs cores for the various parallelization techniques we explore. 
+
+We currently don't have any preliminary results as of now other than a working serial implementation. This is simply due to how we structured the timeline of the project. Additionally, there are no major concerns we have for the project.
+
+
 ## Summary
 We plan to implement Rapidly Exploring Random Trees via different parallelization techniques. Using OpenMP, we hope to explore various strategies and compare performance.
 

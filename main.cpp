@@ -10,6 +10,7 @@ point_t start, goal;
 int max_num_of_nodes, num_of_obstacles;
 int map_dim_x, map_dim_y;
 int dist_to_grow;
+node_t final_winning_node;
 
 //copied from assignment 3
 static int _argc;
@@ -234,14 +235,71 @@ int main(int argc, const char *argv[]) {
 
         // check if point intersects with goal. If so end.
         if(closerThanDistSquared(candidate_node.point, goal, dist_to_grow)){
+            final_winning_node = candidate_node;
+            printf("Winning Goal node: (%d, %d)\n", candidate_node.point.x, candidate_node.point.y);
             break;
         }
-
     }
 
     // print out stats
-    printf("Number of nodes generated: %d", num_nodes_generated);
+    printf("Number of nodes generated: %d \n", num_nodes_generated);
 
-    // Save the graph to a file
+    if (num_nodes_generated == max_num_of_nodes) {
+        printf("Max number of nodes reached.\n");
+        printf("Exiting gracefully without saving. Please increase max num nodes \n");
+        return -1;
+    }
+
+
+    /////////////////////////////////////////////////////////////
+
+
+    // Save the graph/nodes to a file
+    char nodes_output[255];
+    snprintf(nodes_output, 256, "outputs/%s_%d_nodes.txt", input_basename, num_of_threads);
+
+    FILE *nodes_output_file = fopen(nodes_output, "w");
+
+    fprintf(nodes_output_file, "%d\n", num_nodes_generated);
+    for(int node_iter = 0; node_iter < num_nodes_generated; node_iter++) {
+        int parent_index = (list_of_nodes[node_iter].parent - list_of_nodes) / sizeof(node_t);
+        fprintf(nodes_output_file, "%d %d %d\n", list_of_nodes[node_iter].point.x, list_of_nodes[node_iter].point.y, parent_index);
+    }
+    printf("Done writing nodes list to file: %s\n", nodes_output);
+
+    
+    /////////////////////////////////////////////////////////////
+    
+
+    // traverse the path backwards and print out the points
+    node_t current_node = final_winning_node;
+    int path_length = 0;
+    while(current_node.point.x != start.x || current_node.point.y != start.y){
+        int parent_index = (current_node.parent - list_of_nodes) / sizeof(node_t);
+        printf("%d %d %d\n", current_node.point.x, current_node.point.y, parent_index);
+        current_node = list_of_nodes[parent_index];
+        path_length++;
+    }
+    printf("Path length: %d\n", path_length);
+
+
+    // Save the path to a file
+    char path_output[255];
+    snprintf(path_output, 256, "outputs/%s_%d_path.txt", input_basename, num_of_threads);
+    FILE *path_output_file = fopen(path_output, "w");
+
+    fprintf(path_output_file, "%d\n", path_length);
+
+    // traverse again to print
+    current_node = final_winning_node;
+    int parent_index;
+    while(current_node.point.x != start.x || current_node.point.y != start.y){
+        fprintf(path_output_file, "%d %d %d\n", current_node.point.x, current_node.point.y, parent_index);
+        parent_index = (current_node.parent - list_of_nodes) / sizeof(node_t);
+        current_node = list_of_nodes[parent_index];
+    }
+    fprintf(path_output_file, "%d %d %d\n", current_node.point.x, current_node.point.y, parent_index);
+
+    printf("Writing nodes list to file: %s\n", path_output);
     
 }

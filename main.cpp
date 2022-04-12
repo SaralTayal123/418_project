@@ -5,6 +5,7 @@
 #include "util.h"
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 point_t start, goal;
 int max_num_of_nodes, num_of_obstacles;
@@ -43,14 +44,12 @@ static void show_help(const char *program_path) {
     printf("OPTIONS:\n");
     printf("\t-f <input_filename> (required)\n");
     printf("\t-n <num_of_threads> (required)\n");
-    printf("\t-p <SA_prob>\n");
-    printf("\t-i <SA_iters>\n");
+    printf("\t-r <int: 0 = run RRT, 1 = run RRT*> (required)\n");
+    printf("\t-d <int: distance to grow: default 5> (required)\n");
 }
 
 
-
-
-node_t growFromNode(node_t *node, point_t direction, int dist_to_grow){
+bool growFromNode(node_t *node, point_t direction, int dist_to_grow, node_t *new_node_return) {
     int x_dist = direction.x - node->point.x;
     int y_dist = direction.y - node->point.y;
     float dist = euclideanDistance(node->point, direction);
@@ -59,9 +58,12 @@ node_t growFromNode(node_t *node, point_t direction, int dist_to_grow){
     node_t new_node;
     new_node.point.x = node->point.x + (x_dist * dist_ratio);
     new_node.point.y = node->point.y + (y_dist * dist_ratio);
+    new_node.cost = node->cost + dist; // Keep track of the cost of the path
     new_node.parent = node;
-    
-    return new_node;
+    if (new_node.point.x < 0 || new_node.point.x >= map_dim_x || new_node.point.y < 0 || new_node.point.y >= map_dim_y)
+        return false;
+    *new_node_return = new_node;
+    return true;
 }
 
 point_t generateRandomPoint(int map_dim_x, int map_dim_y){
@@ -101,6 +103,31 @@ bool findNearestNodeToCoordinate(point_t coordinate, node_t *list_of_nodes, int 
     return true;
 }
 
+void run_rrt_star(node_t node_to_refine, node_t *list_of_nodes, int num_of_nodes_to_search){
+    static int nodes_improved = 0;
+    // Find the nearest node to the coordinate and sets it as its parent.
+    int threshold_d2 = pow(dist_to_grow * 10, 2); // just a heuristic, refine later 
+
+    for(int i = 0; i < num_of_nodes_to_search; i++) {
+        node_t candidate_node = list_of_nodes[i];
+        int d2 = squaredDistance(node_to_refine.point, list_of_nodes[i].point);
+        // TODO: Might need to check collision here
+        if(d2 < threshold_d2 && d2 > 0){
+            int cost_with_candidate = candidate_node.cost + d2;
+            // valid node, see if the cost is lower
+            if (cost_with_candidate < node_to_refine.cost) {
+                // printf("Found a better node to refine\n");
+                // printf("Old cost: %d, new cost: %d\n", node_to_refine.cost, cost_with_candidate);
+                node_to_refine.parent = &candidate_node;
+                node_to_refine.cost = cost_with_candidate;
+                nodes_improved++;
+                // TODO: Need to traverse forwards to update the cost of the nodes
+            }
+        }
+    }
+    // printf("Nodes improved: %d\n", nodes_improved);
+    return;
+}
 
 int main(int argc, const char *argv[]) {    
     // Source: https://en.wikipedia.org/wiki/Rapidly-exploring_random_tree#Algorithm
@@ -130,29 +157,22 @@ int main(int argc, const char *argv[]) {
     // from qnear in the direction of qrand. (According to [4] in holonomic problems, this 
     // should be omitted and qrand used instead of qnew.)
 
-    int error = 0;
-
     _argc = argc - 1;
     _argv = argv + 1;
 
     const char *input_filename = get_option_string("-f", NULL);
     int num_of_threads = get_option_int("-n", 1);
-    // double SA_prob = get_option_float("-p", 0.1f);
-    // int SA_iters = get_option_int("-i", 5);
+    int rrt_star_flag = get_option_int("-r", 1);
+    dist_to_grow = get_option_int("-d", 1);
+
 
     if (input_filename == NULL) {
         printf("Error: You need to specify -f.\n");
-        error = 1;
-    }
-
-    if (error) {
         show_help(argv[0]);
         return 1;
     }
 
     printf("Number of threads: %d\n", num_of_threads);
-    // printf("Probability parameter for simulated annealing: %lf.\n", SA_prob);
-    // printf("Number of simulated annealing iterations: %d\n", SA_iters);
     printf("Input file: %s\n", input_filename);
 
 
@@ -197,13 +217,12 @@ int main(int argc, const char *argv[]) {
     node_t list_of_nodes[max_num_of_nodes];
     list_of_nodes[0] = (node_t) {
         .point = start,
+        .cost = 0,
         .parent = NULL
     };
 
     // random seed based on current time
     srand (time(NULL));
-    // TODO: Move to an argument
-    dist_to_grow = 5;
 
 
     int num_nodes_generated = 0;
@@ -225,9 +244,25 @@ int main(int argc, const char *argv[]) {
             // printf("Nearest vertex: (%d, %d)\n", nearest_vertex->point.x, nearest_vertex->point.y);
             
             // generate a new node by growing from the nearest vertex
-            candidate_node = growFromNode(nearest_vertex, random_point, dist_to_grow);
+            res = growFromNode(nearest_vertex, random_point, dist_to_grow, &candidate_node);
+            if (!res) {
+                // Closest node is too close...just skip this iteration
+                continue;
+            }
         // check if node is valid
         } while(doesCollide(obstacles, num_of_obstacles, candidate_node));
+
+        // run RRT* refinement
+        if(rrt_star_flag){
+            run_rrt_star(candidate_node, list_of_nodes, num_nodes_generated);
+        }
+
+        // temporary debug asserts
+        // if(!(candidate_node.point.x >= 0 && candidate_node.point.x < map_dim_x)){
+        //     printf("candidate_node.point.x: %d\n", candidate_node.point.x);
+        // }
+        assert(candidate_node.point.x >= 0 && candidate_node.point.x < map_dim_x);
+        assert(candidate_node.point.y >= 0 && candidate_node.point.y < map_dim_y);
 
         // add node
         list_of_nodes[num_nodes_generated] = candidate_node;
@@ -275,12 +310,13 @@ int main(int argc, const char *argv[]) {
     node_t current_node = final_winning_node;
     int path_length = 0;
     while(current_node.point.x != start.x || current_node.point.y != start.y){
-        int parent_index = (current_node.parent - list_of_nodes) / sizeof(node_t);
-        printf("%d %d %d\n", current_node.point.x, current_node.point.y, parent_index);
+        int parent_index = (current_node.parent - list_of_nodes);// / sizeof(node_t);
+        // printf("%d %d %d\n", current_node.point.x, current_node.point.y, parent_index);
         current_node = list_of_nodes[parent_index];
         path_length++;
     }
     printf("Path length: %d\n", path_length);
+    printf("Path Cost: %d\n", final_winning_node.cost);
 
 
     // Save the path to a file
@@ -289,13 +325,14 @@ int main(int argc, const char *argv[]) {
     FILE *path_output_file = fopen(path_output, "w");
 
     fprintf(path_output_file, "%d\n", path_length);
+    fprintf(path_output_file, "%d\n", final_winning_node.cost);
 
     // traverse again to print
     current_node = final_winning_node;
     int parent_index;
     while(current_node.point.x != start.x || current_node.point.y != start.y){
         fprintf(path_output_file, "%d %d %d\n", current_node.point.x, current_node.point.y, parent_index);
-        parent_index = (current_node.parent - list_of_nodes) / sizeof(node_t);
+        parent_index = (current_node.parent - list_of_nodes);// / sizeof(node_t);
         current_node = list_of_nodes[parent_index];
     }
     fprintf(path_output_file, "%d %d %d\n", current_node.point.x, current_node.point.y, parent_index);

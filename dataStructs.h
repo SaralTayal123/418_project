@@ -17,6 +17,7 @@ typedef struct{
 
 typedef struct node{
     point_t point;
+    uint32_t cost;
     struct node *parent;
 } node_t;
 

@@ -104,4 +104,4 @@ if __name__ == "__main__":
 
 
     # Save image
-    cv2.imwrite(os.path.basename(input_file).replace("txt", "png") , img)
+    cv2.imwrite(os.path.join("images", os.path.basename(input_file).replace("txt", "png")), img)

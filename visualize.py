@@ -1,3 +1,6 @@
+# Example of how to run the program:
+# python3 visualize.py -i inputs/map_1.txt -n outputs/map_1_1_nodes.txt -p outputs/map_1_1_path.txt
+
 # The only external library required...
 import cv2
 import numpy as np

@@ -89,6 +89,7 @@ bool findNearestNodeToCoordinate(point_t coordinate, node_t *list_of_nodes, int 
     // returns true if found, 
     // returns false if nearest node is closer than dist_to_grow 
     int min_d2 = pow(map_dim_x + map_dim_y, 2); // Guaranteed to be greater than any distance
+    int index = -1;
     for(int i = 0; i < num_of_nodes; i++) {
         int d2 = squaredDistance(coordinate, list_of_nodes[i].point);
         if(d2 < min_d2){
@@ -97,36 +98,78 @@ bool findNearestNodeToCoordinate(point_t coordinate, node_t *list_of_nodes, int 
                 return false;
             }
             *nearest_node = &list_of_nodes[i];
+            index = i;
         }
     }
+
+    // printf("Found nearest node to coordinate: %d, %d, rand_point: %d, %d, dist: %d, Index: %d \n", (*nearest_node)->point.x, (*nearest_node)->point.y, coordinate.x, coordinate.y, min_d2, index);
+    // for (int i = 0; i < num_of_nodes; i++) {
+    //     printf("%d, %d, %d\n", list_of_nodes[i].point.x, list_of_nodes[i].point.y, squaredDistance(coordinate, list_of_nodes[i].point));
+    // }
+
 
     return true;
 }
 
-void run_rrt_star(node_t node_to_refine, node_t *list_of_nodes, int num_of_nodes_to_search){
+void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_nodes_to_search){
     static int nodes_improved = 0;
     // Find the nearest node to the coordinate and sets it as its parent.
-    int threshold_d2 = pow(dist_to_grow * 10, 2); // just a heuristic, refine later 
+
+    int threshold_d2 = dist_to_grow * 2; // just a heuristic, TODO: refine later 
+    uint32_t min_d2 = pow(map_dim_x + map_dim_y, 2); // Guaranteed to be greater than any distance
+    node_t nearest_node;
+    int best_index = -1;
 
     for(int i = 0; i < num_of_nodes_to_search; i++) {
         node_t candidate_node = list_of_nodes[i];
-        int d2 = squaredDistance(node_to_refine.point, list_of_nodes[i].point);
+        int d2 = euclideanDistance(node_to_refine->point, candidate_node.point);
         // TODO: Might need to check collision here
         if(d2 < threshold_d2 && d2 > 0){
-            int cost_with_candidate = candidate_node.cost + d2;
+        // if(d2 > 0){
+            uint32_t cost_with_candidate = candidate_node.cost + d2;
             // valid node, see if the cost is lower
-            if (cost_with_candidate < node_to_refine.cost) {
+            if (cost_with_candidate < node_to_refine->cost && cost_with_candidate < min_d2) {
                 // printf("Found a better node to refine\n");
                 // printf("Old cost: %d, new cost: %d\n", node_to_refine.cost, cost_with_candidate);
-                node_to_refine.parent = &candidate_node;
-                node_to_refine.cost = cost_with_candidate;
-                nodes_improved++;
-                // TODO: Need to traverse forwards to update the cost of the nodes
+                // printf("D2 %d \n", d2);
+                // printf("index: %d\n", i);
+                nearest_node = candidate_node;
+                min_d2 = cost_with_candidate;
+                best_index = i;
             }
         }
     }
-    // printf("Nodes improved: %d\n", nodes_improved);
+
+    if(min_d2 ==  pow(map_dim_x + map_dim_y, 2)) return;
+
+    uint32_t cost_with_candidate = nearest_node.cost + euclideanDistance(node_to_refine->point, nearest_node.point);
+    // printf("Cost improved by %d %d\n", cost_with_candidate - node_to_refine.cost, node_to_refine.cost - cost_with_candidate);
+    // printf("Final: Old cost %d, new cost %d dbg 1: %d, dbg 2: %f \n", node_to_refine->cost, cost_with_candidate, nearest_node.cost, euclideanDistance(node_to_refine->point, nearest_node.point) );
+    // printf("Node's parent's point %d, %d\n", node_to_refine->parent->point.x, node_to_refine->parent->point.y);
+    node_to_refine->parent = list_of_nodes + best_index;
+    // printf("Node parent index %d\n", (node_to_refine->parent - list_of_nodes) / sizeof(node_t));
+    node_to_refine->cost = cost_with_candidate;
+    // printf("Node's parent's cost %d\n", node_to_refine.parent->cost);
+                
+    // now that the best node is found, find other nodes that can benifit from this
+    for(int i = 0; i < num_of_nodes_to_search; i++) {
+        node_t *candidate_node = list_of_nodes + i;
+        int d2 = euclideanDistance(node_to_refine->point, candidate_node->point);
+        // TODO: Might need to check collision here
+        if(d2 < threshold_d2 && d2 > 0){
+            uint32_t cost_with_optimized_node = d2 + node_to_refine->cost;
+            // valid node, see if the cost is lower
+            if (cost_with_optimized_node < candidate_node->cost) {
+                // printf("Found a better node to refine\n");
+                // printf("Old cost: %d, new cost: %d\n", node_to_refine.cost, cost_with_candidate);
+                candidate_node->parent = list_of_nodes + best_index;
+                candidate_node->cost = cost_with_optimized_node;
+            }
+        }
+    }
+
     return;
+
 }
 
 int main(int argc, const char *argv[]) {    
@@ -219,6 +262,7 @@ int main(int argc, const char *argv[]) {
         .point = start,
         .cost = 0,
         .parent = NULL
+        // .child = NULL
     };
 
     // random seed based on current time
@@ -226,6 +270,9 @@ int main(int argc, const char *argv[]) {
 
 
     int num_nodes_generated = 0;
+    uint32_t best_cost = 0;
+    int num_of_winning_nodes = 0;
+
     for(num_nodes_generated = 1; num_nodes_generated < max_num_of_nodes; num_nodes_generated++){
         node_t *nearest_vertex;
         point_t random_point;
@@ -252,9 +299,12 @@ int main(int argc, const char *argv[]) {
         // check if node is valid
         } while(doesCollide(obstacles, num_of_obstacles, candidate_node));
 
+        // // set the parent's child to the new node
+        // nearest_vertex->child = &candidate_node;
+
         // run RRT* refinement
         if(rrt_star_flag){
-            run_rrt_star(candidate_node, list_of_nodes, num_nodes_generated);
+            run_rrt_star(&candidate_node, list_of_nodes, num_nodes_generated);
         }
 
         // temporary debug asserts
@@ -269,21 +319,35 @@ int main(int argc, const char *argv[]) {
         // printf("Generated node %d at (%d, %d)\n", num_nodes_generated, candidate_node.point.x, candidate_node.point.y);
 
         // check if point intersects with goal. If so end.
-        if(closerThanDistSquared(candidate_node.point, goal, dist_to_grow)){
-            final_winning_node = candidate_node;
-            printf("Winning Goal node: (%d, %d)\n", candidate_node.point.x, candidate_node.point.y);
-            break;
+
+
+        if(closerThanDistSquared(candidate_node.point, goal, pow(dist_to_grow, 2))){
+            printf("Found goal \n");
+            // final_winning_node = candidate_node;
+            // break;
+            if (num_of_winning_nodes == 0) {
+                best_cost = candidate_node.cost;
+                final_winning_node = candidate_node;
+                num_of_winning_nodes++;
+            }
+            else{
+                if(candidate_node.cost < best_cost){
+                    best_cost = candidate_node.cost;
+                    final_winning_node = candidate_node;
+                }
+                num_of_winning_nodes++;
+            }
         }
     }
-
-    // print out stats
-    printf("Number of nodes generated: %d \n", num_nodes_generated);
-
-    if (num_nodes_generated == max_num_of_nodes) {
-        printf("Max number of nodes reached.\n");
-        printf("Exiting gracefully without saving. Please increase max num nodes \n");
-        return -1;
-    }
+    printf("\n number of winning nodes: %d \n\n", num_of_winning_nodes);
+    // int min_cost_winning = list_of_winning_nodes[0].cost;
+    // for(int i = 0; i < num_of_winning_nodes; i++){
+    //     printf("Winning cost: %d\n", list_of_winning_nodes[i].cost);
+    //     if(list_of_winning_nodes[i].cost < min_cost_winning){
+    //         min_cost_winning = list_of_winning_nodes[i].cost;
+    //         final_winning_node = list_of_winning_nodes[i];
+    //     }
+    // }
 
 
     /////////////////////////////////////////////////////////////
@@ -297,10 +361,19 @@ int main(int argc, const char *argv[]) {
 
     fprintf(nodes_output_file, "%d\n", num_nodes_generated);
     for(int node_iter = 0; node_iter < num_nodes_generated; node_iter++) {
-        int parent_index = (list_of_nodes[node_iter].parent - list_of_nodes) / sizeof(node_t);
+        int parent_index = (list_of_nodes[node_iter].parent - list_of_nodes);
         fprintf(nodes_output_file, "%d %d %d\n", list_of_nodes[node_iter].point.x, list_of_nodes[node_iter].point.y, parent_index);
     }
     printf("Done writing nodes list to file: %s\n", nodes_output);
+
+    // print out stats
+    printf("Number of nodes generated: %d \n", num_nodes_generated);
+
+    if (num_of_winning_nodes == 0) {
+        printf("Max number of nodes reached and no path found.\n");
+        printf("Exiting gracefully without saving path. Please increase max num nodes \n");
+        return -1;
+    }
 
     
     /////////////////////////////////////////////////////////////

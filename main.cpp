@@ -6,7 +6,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-#include <algorithm>    // std::max
+#include <algorithm>    // std::m
+#include <chrono>
+#include <omp.h>
+using namespace std::chrono;
 
 point_t start, goal;
 int max_num_of_nodes, num_of_obstacles;
@@ -113,6 +116,13 @@ inline bool doesOverlapCollide(rect_t *obstacles, int num_of_obstacles, node_t n
         if ((node_y_at_x1 < std::min(y1_boundry, y2_boundry) || node_y_at_x1 > std::max(y2_boundry, y1_boundry)) &&
             (node_y_at_x2 < std::min(y1_boundry, y2_boundry) || node_y_at_x2 > std::min(y1_boundry, y2_boundry)))
             continue;
+
+        float node_x_at_y1 = node_1_x + (y1_boundry - node_1_y) / slope;
+        float node_x_at_y2 = node_1_x + (y2_boundry - node_1_y) / slope;
+
+        if ((node_x_at_y1 < std::min(x1_boundry, x2_boundry) || node_x_at_y1 > std::max(x2_boundry, x1_boundry)) &&
+            (node_x_at_y2 < std::min(x1_boundry, x2_boundry) || node_x_at_y2 > std::min(x1_boundry, x2_boundry)))
+            continue;
         
         // one of the prior conditions failed
         return true;
@@ -128,21 +138,32 @@ bool findNearestNodeToCoordinate(point_t coordinate, node_t *list_of_nodes, int 
     // returns false if nearest node is closer than dist_to_grow 
     int min_d2 = pow(map_dim_x + map_dim_y, 2); // Guaranteed to be greater than any distance
     int index = -1;
+
+    #pragma omp parallel for schedule(static,8)
+    for(int i = 0; i < num_of_nodes; i++) {
+        int d2 = squaredDistance(coordinate, list_of_nodes[i].point);
+        // if(d2 < min_d2){
+        //     min_d2 = d2;
+        //     *nearest_node = &list_of_nodes[i];
+        //     index = i;
+        // }
+    }
+
     for(int i = 0; i < num_of_nodes; i++) {
         int d2 = squaredDistance(coordinate, list_of_nodes[i].point);
         if(d2 < min_d2){
             min_d2 = d2;
-            if(min_d2 < dist_to_grow){
-                return false;
-            }
             *nearest_node = &list_of_nodes[i];
             index = i;
         }
     }
+    if(min_d2 < dist_to_grow){
+        return false;
+    }
     return true;
 }
 
-void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_nodes_to_search, rect_t *obstacles, int num_of_obstacles){
+inline void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_nodes_to_search, rect_t *obstacles, int num_of_obstacles){
     static int nodes_improved = 0;
     // Find the nearest node to the coordinate and sets it as its parent.
 
@@ -151,7 +172,11 @@ void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_node
     node_t nearest_node;
     int best_index = -1;
 
+    #pragma omp parallel for
     for(int i = 0; i < num_of_nodes_to_search; i++) {
+        // int num_of_threads = omp_get_num_threads();
+        // printf("num_of_threads: %d\n", num_of_threads);
+
         node_t candidate_node = list_of_nodes[i];
         bool collide = doesOverlapCollide(obstacles, num_of_obstacles, *node_to_refine, candidate_node);
         if (collide)
@@ -177,6 +202,8 @@ void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_node
     node_to_refine->cost = cost_with_candidate;
                 
     // now that the best node is found, find other nodes that can benifit from this
+    
+    #pragma omp parallel for
     for(int i = 0; i < num_of_nodes_to_search; i++) {
         node_t *candidate_node = list_of_nodes + i;
         int d2 = euclideanDistance(node_to_refine->point, candidate_node->point);
@@ -230,10 +257,15 @@ int main(int argc, const char *argv[]) {
     _argv = argv + 1;
 
     const char *input_filename = get_option_string("-f", NULL);
-    int num_of_threads = get_option_int("-n", 1);
+    int num_of_threads = get_option_int("-t", 1);
     int rrt_star_flag = get_option_int("-r", 1);
     dist_to_grow = get_option_int("-d", 1);
+    
+    omp_set_num_threads(num_of_threads);
 
+    int nthreads = omp_get_num_threads();
+    printf("Number of threads = %d\n", nthreads);
+    printf("2 Number of threads = %d\n", num_of_threads);
 
     if (input_filename == NULL) {
         printf("Error: You need to specify -f.\n");
@@ -299,14 +331,30 @@ int main(int argc, const char *argv[]) {
     uint32_t best_cost = 0;
     int num_of_winning_nodes = 0;
 
+    uint32_t timers[10] = {0};
+    auto start_time = std::chrono::high_resolution_clock::now();
     for(num_nodes_generated = 1; num_nodes_generated < max_num_of_nodes; num_nodes_generated++){
+
         node_t *nearest_vertex;
         point_t random_point;
         node_t candidate_node;
+        
+        auto start_1 = high_resolution_clock::now();
+        auto end_1 = high_resolution_clock::now();
+        auto end_2 = high_resolution_clock::now();
+        auto end_3 = high_resolution_clock::now();
+
         do{
             // genereate a random point
+
+            // timing code
+            start_1 = high_resolution_clock::now();
+
             random_point = generateRandomPoint(map_dim_x, map_dim_y);
             // printf("Random point: (%d, %d)\n", random_point.x, random_point.y);
+
+            // timing code
+            end_1 = high_resolution_clock::now();
 
             // find the nearest vertex
             bool res = findNearestNodeToCoordinate(random_point, list_of_nodes, num_nodes_generated, &nearest_vertex);
@@ -314,10 +362,16 @@ int main(int argc, const char *argv[]) {
                 // Closest node is too close...just skip this iteration
                 continue;
             }
-            // printf("Nearest vertex: (%d, %d)\n", nearest_vertex->point.x, nearest_vertex->point.y);
+
+            // timing code
+            end_2 = high_resolution_clock::now();
             
             // generate a new node by growing from the nearest vertex
             res = growFromNode(nearest_vertex, random_point, dist_to_grow, &candidate_node);
+
+            // timing code
+            end_3 = high_resolution_clock::now();
+
             if (!res) {
                 // Closest node is too close...just skip this iteration
                 continue;
@@ -325,10 +379,13 @@ int main(int argc, const char *argv[]) {
         // check if node is valid
         } while(doesCollide(obstacles, num_of_obstacles, candidate_node));
 
+
+        auto end_4 = high_resolution_clock::now();
         // run RRT* refinement
         if(rrt_star_flag){
             run_rrt_star(&candidate_node, list_of_nodes, num_nodes_generated, obstacles, num_of_obstacles);
         }
+        auto end_5 = high_resolution_clock::now();
 
         assert(candidate_node.point.x >= 0 && candidate_node.point.x < map_dim_x);
         assert(candidate_node.point.y >= 0 && candidate_node.point.y < map_dim_y);
@@ -352,8 +409,28 @@ int main(int argc, const char *argv[]) {
                 num_of_winning_nodes++;
             }
         }
+
+        auto end_6 = high_resolution_clock::now();
+
+        timers[0] += duration_cast<microseconds>(end_1 - start_1).count();
+        timers[1] += duration_cast<microseconds>(end_2 - end_1).count();
+        timers[2] += duration_cast<microseconds>(end_3 - end_2).count();
+        timers[3] += duration_cast<microseconds>(end_4 - end_3).count();
+        timers[4] += duration_cast<microseconds>(end_5 - end_4).count();
+        timers[5] += duration_cast<microseconds>(end_6 - end_5).count();
+
     }
+    auto end_time = std::chrono::high_resolution_clock::now();
+
     printf("\n number of winning nodes: %d \n\n", num_of_winning_nodes);
+
+    for(int i = 0; i < 6; i++){
+        printf("%ld, ", timers[i]);
+    }
+
+    printf("\n\n");
+
+    printf("overall time: %ld\n", duration_cast<microseconds>(end_time - start_time).count());
 
     /////////////////////////////////////////////////////////////
 

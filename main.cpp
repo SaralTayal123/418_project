@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <algorithm>    // std::max
 
 point_t start, goal;
 int max_num_of_nodes, num_of_obstacles;
@@ -84,6 +85,43 @@ inline bool doesCollide(rect_t *obstacles, int num_of_obstacles, node_t node){
     return false;
 }
 
+// returns true if it does collide (overlap)
+inline bool doesOverlapCollide(rect_t *obstacles, int num_of_obstacles, node_t node1, node_t node2){
+    // check if node1 to node2 overlaps with any of the obstales
+    for(int i = 0; i < num_of_obstacles; i++){
+        int x1_boundry = obstacles[i].x1;
+        int x2_boundry = obstacles[i].x2;
+        int y1_boundry = obstacles[i].y1;
+        int y2_boundry = obstacles[i].y2;
+
+        int node_1_x = node1.point.x;
+        int node_1_y = node1.point.y;
+        int node_2_x = node2.point.x;
+        int node_2_y = node2.point.y;
+
+        // return false if node1 and node2 x and y are not in the same boundry
+        if((node_1_x < x1_boundry && node_2_x < x1_boundry) || (node_1_x > x2_boundry && node_2_x > x2_boundry) ||
+           (node_1_y < y1_boundry && node_2_y < y1_boundry) || (node_1_y > y2_boundry && node_2_y > y2_boundry)){
+            continue;
+        }
+
+        // calculate the y and x of the intersection
+        float slope = ((float)(node_2_y - node_1_y)) / ((float)(node_2_x - node_1_x));
+        float node_y_at_x1 = node_1_y + (x1_boundry - node_1_x) * slope; // y offset + slope * (x offset) 
+        float node_y_at_x2 = node_1_y + (x2_boundry - node_1_x) * slope;
+        
+        if ((node_y_at_x1 < std::min(y1_boundry, y2_boundry) || node_y_at_x1 > std::max(y2_boundry, y1_boundry)) &&
+            (node_y_at_x2 < std::min(y1_boundry, y2_boundry) || node_y_at_x2 > std::min(y1_boundry, y2_boundry)))
+            continue;
+        
+        // one of the prior conditions failed
+        return true;
+    }
+
+    return false;
+
+}
+
 bool findNearestNodeToCoordinate(point_t coordinate, node_t *list_of_nodes, int num_of_nodes, node_t **nearest_node){
     // Find the nearest node to the coordinate.
     // returns true if found, 
@@ -104,7 +142,7 @@ bool findNearestNodeToCoordinate(point_t coordinate, node_t *list_of_nodes, int 
     return true;
 }
 
-void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_nodes_to_search){
+void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_nodes_to_search, rect_t *obstacles, int num_of_obstacles){
     static int nodes_improved = 0;
     // Find the nearest node to the coordinate and sets it as its parent.
 
@@ -115,6 +153,9 @@ void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_node
 
     for(int i = 0; i < num_of_nodes_to_search; i++) {
         node_t candidate_node = list_of_nodes[i];
+        bool collide = doesOverlapCollide(obstacles, num_of_obstacles, *node_to_refine, candidate_node);
+        if (collide)
+            continue;
         int d2 = euclideanDistance(node_to_refine->point, candidate_node.point);
         // TODO: Might need to check collision here
         if(d2 < threshold_d2 && d2 > 0){
@@ -140,6 +181,9 @@ void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_of_node
         node_t *candidate_node = list_of_nodes + i;
         int d2 = euclideanDistance(node_to_refine->point, candidate_node->point);
         // TODO: Might need to check collision here
+        bool collide = doesOverlapCollide(obstacles, num_of_obstacles, *node_to_refine, *candidate_node);
+        if (collide)
+            continue;
         if(d2 < threshold_d2 && d2 > 0){
             uint32_t cost_with_optimized_node = d2 + node_to_refine->cost;
             // valid node, see if the cost is lower
@@ -283,7 +327,7 @@ int main(int argc, const char *argv[]) {
 
         // run RRT* refinement
         if(rrt_star_flag){
-            run_rrt_star(&candidate_node, list_of_nodes, num_nodes_generated);
+            run_rrt_star(&candidate_node, list_of_nodes, num_nodes_generated, obstacles, num_of_obstacles);
         }
 
         assert(candidate_node.point.x >= 0 && candidate_node.point.x < map_dim_x);

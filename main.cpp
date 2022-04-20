@@ -80,8 +80,9 @@ point_t generateRandomPoint(int map_dim_x, int map_dim_y){
 inline bool doesCollide(rect_t *obstacles, int num_of_obstacles, node_t node){
     // check if vector collides with any of the obstales
     for(int i = 0; i < num_of_obstacles; i++){
-        if(node.point.x >= obstacles[i].x1 && node.point.x <= obstacles[i].x2 &&
-            node.point.y >= obstacles[i].y1 && node.point.y <= obstacles[i].y2){
+        rect_t o = obstacles[i];
+        if(node.point.x >= o.x1 && node.point.x <= o.x2 &&
+            node.point.y >= o.y1 && node.point.y <= o.y2){
             return true;
         }
     }
@@ -123,6 +124,7 @@ inline bool doesOverlapCollide(rect_t *obstacles, int num_of_obstacles, node_t n
         if ((node_x_at_y1 < std::min(x1_boundry, x2_boundry) || node_x_at_y1 > std::max(x2_boundry, x1_boundry)) &&
             (node_x_at_y2 < std::min(x1_boundry, x2_boundry) || node_x_at_y2 > std::min(x1_boundry, x2_boundry)))
             continue;
+
         
         // one of the prior conditions failed
         return true;
@@ -135,31 +137,48 @@ inline bool doesOverlapCollide(rect_t *obstacles, int num_of_obstacles, node_t n
 bool findNearestNodeToCoordinate(point_t coordinate, node_t *list_of_nodes, int num_of_nodes, node_t **nearest_node){
     // Find the nearest node to the coordinate.
     // returns true if found, 
-    // returns false if nearest node is closer than dist_to_grow 
+    // returns false if nearest node is closer than dist_to_grow     
     int min_d2 = pow(map_dim_x + map_dim_y, 2); // Guaranteed to be greater than any distance
-    int index = -1;
+    
+    int core_count = omp_get_max_threads();
+    int min_d2_array[core_count];
+    int min_d2_index_array[core_count];
 
-    #pragma omp parallel for schedule(static,8)
-    for(int i = 0; i < num_of_nodes; i++) {
-        int d2 = squaredDistance(coordinate, list_of_nodes[i].point);
-        // if(d2 < min_d2){
-        //     min_d2 = d2;
-        //     *nearest_node = &list_of_nodes[i];
-        //     index = i;
-        // }
+    for(int i = 0; i < core_count; i++){
+        min_d2_array[i] = min_d2;
+        min_d2_index_array[i] = -1;
     }
-
+    
+    #pragma omp parallel for
     for(int i = 0; i < num_of_nodes; i++) {
         int d2 = squaredDistance(coordinate, list_of_nodes[i].point);
-        if(d2 < min_d2){
-            min_d2 = d2;
-            *nearest_node = &list_of_nodes[i];
-            index = i;
+        int tid = omp_get_thread_num();
+        // printf("Thread %d: d2 = %d\n", tid, d2);
+        if(d2 < min_d2_array[tid]){
+            min_d2_array[tid] = d2;
+            min_d2_index_array[tid] = i;
         }
     }
+
+    int min_index; 
+    // int min_i;
+    for(int i = 0; i < core_count; i++){
+        if(min_d2_array[i] < min_d2){
+            min_d2 = min_d2_array[i];
+            min_index = min_d2_index_array[i];
+            // min_i = i;
+        }
+    }
+
+    // printf("min_index: %d\n", min_index);
+    // printf("min_index2 : %d\n", min_i);
+
+    *nearest_node = &list_of_nodes[min_index];
+
     if(min_d2 < dist_to_grow){
         return false;
     }
+
     return true;
 }
 
@@ -171,53 +190,56 @@ inline void run_rrt_star(node_t *node_to_refine, node_t *list_of_nodes, int num_
     uint32_t min_d2 = pow(map_dim_x + map_dim_y, 2); // Guaranteed to be greater than any distance
     node_t nearest_node;
     int best_index = -1;
+    
+    #pragma omp parallel
+    {
+        #pragma omp for schedule(static, 32)
+        for(int i = 0; i < num_of_nodes_to_search; i++) {
+            // int num_of_threads = omp_get_num_threads();
+            // printf("num_of_threads: %d\n", num_of_threads);
 
-    #pragma omp parallel for
-    for(int i = 0; i < num_of_nodes_to_search; i++) {
-        // int num_of_threads = omp_get_num_threads();
-        // printf("num_of_threads: %d\n", num_of_threads);
-
-        node_t candidate_node = list_of_nodes[i];
-        bool collide = doesOverlapCollide(obstacles, num_of_obstacles, *node_to_refine, candidate_node);
-        if (collide)
-            continue;
-        int d2 = euclideanDistance(node_to_refine->point, candidate_node.point);
-        // TODO: Might need to check collision here
-        if(d2 < threshold_d2 && d2 > 0){
-        // if(d2 > 0){
-            uint32_t cost_with_candidate = candidate_node.cost + d2;
-            // valid node, see if the cost is lower
-            if (cost_with_candidate < node_to_refine->cost && cost_with_candidate < min_d2) {
-                nearest_node = candidate_node;
-                min_d2 = cost_with_candidate;
-                best_index = i;
+            node_t candidate_node = list_of_nodes[i];
+            int d2 = euclideanDistance(node_to_refine->point, candidate_node.point);
+            // TODO: Might need to check collision here
+            if(d2 < threshold_d2 && d2 > 0){
+                bool collide = doesOverlapCollide(obstacles, num_of_obstacles, *node_to_refine, candidate_node);
+                if (collide)
+                    continue;
+                uint32_t cost_with_candidate = candidate_node.cost + d2;
+                // valid node, see if the cost is lower
+                if (cost_with_candidate < node_to_refine->cost && cost_with_candidate < min_d2) {
+                    nearest_node = candidate_node;
+                    min_d2 = cost_with_candidate;
+                    best_index = i;
+                }
             }
         }
-    }
 
-    if(min_d2 ==  pow(map_dim_x + map_dim_y, 2)) return;
+        if(min_d2 !=  pow(map_dim_x + map_dim_y, 2)) {
 
-    uint32_t cost_with_candidate = nearest_node.cost + euclideanDistance(node_to_refine->point, nearest_node.point);
-    node_to_refine->parent = list_of_nodes + best_index;
-    node_to_refine->cost = cost_with_candidate;
-                
-    // now that the best node is found, find other nodes that can benifit from this
-    
-    #pragma omp parallel for
-    for(int i = 0; i < num_of_nodes_to_search; i++) {
-        node_t *candidate_node = list_of_nodes + i;
-        int d2 = euclideanDistance(node_to_refine->point, candidate_node->point);
-        // TODO: Might need to check collision here
-        bool collide = doesOverlapCollide(obstacles, num_of_obstacles, *node_to_refine, *candidate_node);
-        if (collide)
-            continue;
-        if(d2 < threshold_d2 && d2 > 0){
-            uint32_t cost_with_optimized_node = d2 + node_to_refine->cost;
-            // valid node, see if the cost is lower
-            if (cost_with_optimized_node < candidate_node->cost) {
-                candidate_node->parent = list_of_nodes + best_index;
-                candidate_node->cost = cost_with_optimized_node;
-            }
+            uint32_t cost_with_candidate = nearest_node.cost + euclideanDistance(node_to_refine->point, nearest_node.point);
+            node_to_refine->parent = list_of_nodes + best_index;
+            node_to_refine->cost = cost_with_candidate;
+                        
+            // now that the best node is found, find other nodes that can benifit from this
+            
+            #pragma omp for schedule(static, 32)
+            for(int i = 0; i < num_of_nodes_to_search; i++) {
+                node_t *candidate_node = list_of_nodes + i;
+                int d2 = euclideanDistance(node_to_refine->point, candidate_node->point);
+                // TODO: Might need to check collision here
+                bool collide = doesOverlapCollide(obstacles, num_of_obstacles, *node_to_refine, *candidate_node);
+                if (collide)
+                    continue;
+                if(d2 < threshold_d2 && d2 > 0){
+                    uint32_t cost_with_optimized_node = d2 + node_to_refine->cost;
+                    // valid node, see if the cost is lower
+                    if (cost_with_optimized_node < candidate_node->cost) {
+                        candidate_node->parent = list_of_nodes + best_index;
+                        candidate_node->cost = cost_with_optimized_node;
+                    }
+                }
+            }   
         }
     }
 
@@ -324,7 +346,8 @@ int main(int argc, const char *argv[]) {
     };
 
     // random seed based on current time
-    srand (time(NULL));
+    // srand (time(NULL));
+    srand(0); // TODO: REVERT THIS OR ELSE RANDOMNESS IS NOT RANDOM
 
 
     int num_nodes_generated = 0;

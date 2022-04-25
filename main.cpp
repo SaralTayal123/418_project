@@ -81,58 +81,130 @@ inline bool doesCollide(rect_t *obstacles, int num_of_obstacles, node_t node){
     // check if vector collides with any of the obstales
     for(int i = 0; i < num_of_obstacles; i++){
         rect_t o = obstacles[i];
-        if(node.point.x >= o.x1 && node.point.x <= o.x2 &&
-            node.point.y >= o.y1 && node.point.y <= o.y2){
+        int padding = 3;
+        if(node.point.x >= o.x1 - padding && node.point.x <= o.x2 + padding &&
+            node.point.y >= o.y1 - padding && node.point.y <= o.y2 + padding){
             return true;
         }
     }
     return false;
 }
 
-// returns true if it does collide (overlap)
+// Collision checker based off of by: https://stackoverflow.com/questions/5514366/how-to-know-if-a-line-intersects-a-rectangle
 inline bool doesOverlapCollide(rect_t *obstacles, int num_of_obstacles, node_t node1, node_t node2){
-    // check if node1 to node2 overlaps with any of the obstales
     for(int i = 0; i < num_of_obstacles; i++){
         int x1_boundry = obstacles[i].x1;
         int x2_boundry = obstacles[i].x2;
         int y1_boundry = obstacles[i].y1;
         int y2_boundry = obstacles[i].y2;
 
-        int node_1_x = node1.point.x;
-        int node_1_y = node1.point.y;
-        int node_2_x = node2.point.x;
-        int node_2_y = node2.point.y;
+        int padding = 5;
+        double rectangleMinX = std::min(x1_boundry, x2_boundry) - padding;
+        double rectangleMinY = std::min(y1_boundry, y2_boundry) - padding;
+        double rectangleMaxX = std::max(x1_boundry, x2_boundry) + padding;
+        double rectangleMaxY = std::max(y1_boundry, y2_boundry) + padding;
 
-        // return false if node1 and node2 x and y are not in the same boundry
-        if((node_1_x < x1_boundry && node_2_x < x1_boundry) || (node_1_x > x2_boundry && node_2_x > x2_boundry) ||
-           (node_1_y < y1_boundry && node_2_y < y1_boundry) || (node_1_y > y2_boundry && node_2_y > y2_boundry)){
+        int p1X = node1.point.x;
+        int p1Y = node1.point.y;
+        int p2X = node2.point.x;
+        int p2Y = node2.point.y;
+        // Find min and max X for the segment
+        double minX = (std::min(p1X, p2X));
+        double maxX = (std::max(p1X, p2X));       
+
+        // Find the intersection of the segment's and rectangle's x-projections
+        maxX = maxX > rectangleMaxX ? rectangleMaxX : maxX;
+        minX = minX < rectangleMinX ? rectangleMinX : minX;
+
+        if (minX > maxX) // Projections don't intersect
+        {
             continue;
         }
 
-        // calculate the y and x of the intersection
-        float slope = ((float)(node_2_y - node_1_y)) / ((float)(node_2_x - node_1_x));
-        float node_y_at_x1 = node_1_y + (x1_boundry - node_1_x) * slope; // y offset + slope * (x offset) 
-        float node_y_at_x2 = node_1_y + (x2_boundry - node_1_x) * slope;
-        
-        if ((node_y_at_x1 < std::min(y1_boundry, y2_boundry) || node_y_at_x1 > std::max(y2_boundry, y1_boundry)) &&
-            (node_y_at_x2 < std::min(y1_boundry, y2_boundry) || node_y_at_x2 > std::min(y1_boundry, y2_boundry)))
+        // Find corresponding min and max Y for min and max X we found before
+        double minY = p1Y;
+        double maxY = p2Y;
+
+        double dx = p2X - p1X;
+
+        if (dx != 0) // avoid div0 errors
+        {
+            double a = (p2Y - p1Y)/dx;
+            double b = p1Y - a*p1X;
+            minY = a*minX + b;
+            maxY = a*maxX + b;
+        }
+
+        if (minY > maxY)
+        {
+            double tmp = maxY;
+            maxY = minY;
+            minY = tmp;
+        }
+
+        // Find the intersection of the segment's and rectangle's y-projections
+        maxY = maxY > rectangleMaxY ? rectangleMaxY : maxY;
+        minY = minY < rectangleMinY ? rectangleMinY : minY;
+
+        if (minY > maxY) // projections don't intersect
+        {
             continue;
+        }
 
-        float node_x_at_y1 = node_1_x + (y1_boundry - node_1_y) / slope;
-        float node_x_at_y2 = node_1_x + (y2_boundry - node_1_y) / slope;
-
-        if ((node_x_at_y1 < std::min(x1_boundry, x2_boundry) || node_x_at_y1 > std::max(x2_boundry, x1_boundry)) &&
-            (node_x_at_y2 < std::min(x1_boundry, x2_boundry) || node_x_at_y2 > std::min(x1_boundry, x2_boundry)))
-            continue;
-
-        
-        // one of the prior conditions failed
-        return true;
+        return true; // a prior failed
     }
-
     return false;
-
 }
+
+
+// // returns true if it does collide (overlap)
+// inline bool doesOverlapCollide(rect_t *obstacles, int num_of_obstacles, node_t node1, node_t node2){
+//     // check if node1 to node2 overlaps with any of the obstales
+//     for(int i = 0; i < num_of_obstacles; i++){
+//         int padding = 3;
+//         int x1_boundry = obstacles[i].x1 + padding;
+//         int x2_boundry = obstacles[i].x2 + padding;
+//         int y1_boundry = obstacles[i].y1 - padding;
+//         int y2_boundry = obstacles[i].y2 + padding;
+
+//         assert(x1_boundry <= x2_boundry);
+//         assert(y1_boundry <= y2_boundry);
+
+//         int node_1_x = node1.point.x;
+//         int node_1_y = node1.point.y;
+//         int node_2_x = node2.point.x;
+//         int node_2_y = node2.point.y;
+
+//         // return false if node1 and node2 x and y are not in the same boundry
+//         if((node_1_x < x1_boundry && node_2_x < x1_boundry) || (node_1_x > x2_boundry && node_2_x > x2_boundry) ||
+//            (node_1_y < y1_boundry && node_2_y < y1_boundry) || (node_1_y > y2_boundry && node_2_y > y2_boundry)){
+//             continue;
+//         }
+
+//         // calculate the y and x of the intersection
+//         float slope = ((float)(node_2_y - node_1_y)) / ((float)(node_2_x - node_1_x));
+//         float node_y_at_x1 = node_1_y + (x1_boundry - node_1_x) * slope; // y offset + slope * (x offset) 
+//         float node_y_at_x2 = node_1_y + (x2_boundry - node_1_x) * slope;
+        
+//         if ((node_y_at_x1 < std::min(y1_boundry, y2_boundry) || node_y_at_x1 > std::max(y2_boundry, y1_boundry)) &&
+//             (node_y_at_x2 < std::min(y1_boundry, y2_boundry) || node_y_at_x2 > std::min(y1_boundry, y2_boundry)))
+//             continue;
+
+//         float node_x_at_y1 = node_1_x + (y1_boundry - node_1_y) / slope;
+//         float node_x_at_y2 = node_1_x + (y2_boundry - node_1_y) / slope;
+
+//         if ((node_x_at_y1 < std::min(x1_boundry, x2_boundry) || node_x_at_y1 > std::max(x2_boundry, x1_boundry)) &&
+//             (node_x_at_y2 < std::min(x1_boundry, x2_boundry) || node_x_at_y2 > std::min(x1_boundry, x2_boundry)))
+//             continue;
+
+        
+//         // one of the prior conditions failed
+//         return true;
+//     }
+
+//     return false;
+
+// }
 
 bool findNearestNodeToCoordinate(point_t coordinate, node_t *list_of_nodes, int num_of_nodes, node_t **nearest_node){
     // Find the nearest node to the coordinate.

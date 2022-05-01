@@ -1,6 +1,13 @@
 # OMPRRT: Open-MP based rapidly exploring random trees 
 ### *(pronounced Ompert. Like Robert with Omp.)*
 
+## Final Report
+
+The final report is available at the 'Final_report.pdf' file in the root of the repository. 
+
+Our presentation is available here as an unlisted YouTube video: https://youtu.be/GD27k0zCJVk
+
+
 ## Milestone Report
 
 So far we have gotten our implementation of RRT an d RRT* working in serial execution. We have also developed a method for storing our graphs and the best path it takes in a standard data format. We have also started work on a web based visualizer for the graph to help us visually debug/demonstrate an optimal path and the statespace that the algorithm has found. 
